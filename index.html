@@ -214,7 +214,7 @@
       font-weight: 700;
       line-height: 1.6;
       color: var(--text-main);
-      margin-bottom: 22px;
+      margin-bottom: 18px;
     }
 
     .question-title .q-prefix {
@@ -265,9 +265,13 @@
       transition: all 0.2s ease;
     }
 
+    .option-item.selected {
+      border-color: var(--primary) !important;
+      background-color: var(--primary-light) !important;
+    }
     .option-item.selected .opt-letter {
-      background: var(--primary);
-      color: white;
+      background-color: var(--primary) !important;
+      color: white !important;
     }
 
     .opt-text {
@@ -278,7 +282,7 @@
       flex-grow: 1;
     }
 
-    /* Colors */
+    /* Option States */
     .option-item.correct {
       background-color: var(--success-light) !important;
       border-color: var(--success) !important;
@@ -299,22 +303,48 @@
       color: white !important;
     }
 
+    .option-item.missed {
+      background-color: #fefce8 !important;
+      border: 2px dashed #ca8a04 !important;
+      color: #854d0e !important;
+    }
+    .option-item.missed .opt-letter {
+      background-color: #ca8a04 !important;
+      color: white !important;
+    }
+
     .option-item.selected-exam {
       background-color: var(--primary-light) !important;
       border-color: var(--primary) !important;
     }
 
+    /* Multi-notice Box */
     .multi-hint {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
-      padding: 8px 12px;
-      border-radius: 8px;
-      background: var(--warning-light);
-      color: #92400e;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: var(--primary-light);
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      color: var(--text-main);
       font-size: 13px;
       font-weight: 600;
+      flex-wrap: wrap;
+    }
+
+    .multi-hint.result-correct {
+      background: var(--success-light);
+      border-color: var(--success);
+      color: var(--success-text);
+    }
+
+    .multi-hint.result-wrong {
+      background: var(--danger-light);
+      border-color: var(--danger);
+      color: var(--danger-text);
     }
 
     /* Buttons */
@@ -640,11 +670,8 @@
         <!-- Question Title -->
         <h2 class="question-title" id="questionText">Đang tải câu hỏi...</h2>
 
-        <!-- Multi-choice instructions if type == 'multi' -->
-        <div id="multiNotice" class="multi-hint" style="display: none;">
-          <span>📌 Câu hỏi chọn <b>nhiều đáp án</b>. Bạn có thể chọn nhiều phương án đúng rồi bấm [Xác nhận].</span>
-          <button class="btn btn-primary" style="padding: 5px 12px; font-size: 12px;" onclick="confirmMultiChoice()">✓ Xác nhận</button>
-        </div>
+        <!-- Multi-choice notice bar -->
+        <div id="multiNotice" style="display: none;"></div>
 
         <!-- Options Container -->
         <div class="options-list" id="optionsContainer"></div>
@@ -727,7 +754,8 @@
 
     let activeQuestions = [];
     let currentIndex = 0;
-    let userAnswers = {}; // index -> value (single: number, multi: array of numbers)
+    let userAnswers = {}; // index -> number (single) hoặc array of numbers (multi)
+    let multiConfirmed = {}; // index -> boolean: đánh dấu câu chọn nhiều đáp án đã bấm "Kiểm tra"
     let isFinished = false;
     let currentMode = "practice"; // "practice" | "exam"
 
@@ -752,6 +780,7 @@
 
       currentIndex = 0;
       userAnswers = {};
+      multiConfirmed = {};
       isFinished = false;
       document.getElementById("resultCard").classList.remove("active");
       document.getElementById("quizCard").style.display = "block";
@@ -812,9 +841,13 @@
           btn.classList.add("active");
         }
 
-        if (userAnswers[idx] !== undefined) {
-          if (currentMode === "practice" || isFinished) {
-            if (isAnswerCorrect(q, userAnswers[idx])) {
+        const ans = userAnswers[idx];
+        if (ans !== undefined && (Array.isArray(ans) ? ans.length > 0 : true)) {
+          if (q.type === "multi" && !multiConfirmed[idx] && !isFinished) {
+            // Đang chọn dở chưa kiểm tra
+            btn.classList.add("answered-exam");
+          } else if (currentMode === "practice" || isFinished) {
+            if (isAnswerCorrect(q, ans)) {
               btn.classList.add("correct");
             } else {
               btn.classList.add("wrong");
@@ -834,9 +867,10 @@
       let answered = 0;
 
       activeQuestions.forEach((q, idx) => {
-        if (userAnswers[idx] !== undefined) {
+        const ans = userAnswers[idx];
+        if (ans !== undefined && (Array.isArray(ans) ? ans.length > 0 : true)) {
           answered++;
-          if (isAnswerCorrect(q, userAnswers[idx])) {
+          if (isAnswerCorrect(q, ans)) {
             correct++;
           } else {
             wrong++;
@@ -861,28 +895,50 @@
       if (activeQuestions.length === 0) return;
 
       const q = activeQuestions[currentIndex];
+      const userAns = userAnswers[currentIndex];
+      const isMulti = q.type === "multi";
+      const isMultiDone = isMulti && (multiConfirmed[currentIndex] || isFinished);
 
-      // Badges
+      // Cập nhật thẻ hiển thị
       document.getElementById("partBadge").textContent = q.part_title;
       let typeLabel = "1 Đáp án";
-      if (q.type === "multi") typeLabel = "Nhiều đáp án";
+      if (isMulti) typeLabel = "Nhiều đáp án";
       else if (q.type === "tf") typeLabel = "Đúng / Sai";
       document.getElementById("typeBadge").textContent = typeLabel;
 
-      // Progress
+      // Thanh tiến độ
       document.getElementById("progressPill").textContent = `Câu ${currentIndex + 1} / ${activeQuestions.length}`;
       const progressPercent = ((currentIndex + 1) / activeQuestions.length) * 100;
       document.getElementById("progressBar").style.width = `${progressPercent}%`;
 
-      // Title
+      // Tiêu đề câu hỏi
       const titleElem = document.getElementById("questionText");
       titleElem.innerHTML = `<span class="q-prefix">Câu ${currentIndex + 1}.</span> ${q.q}`;
 
-      // Multi-notice
+      // Khung thông báo và nút bấm cho câu chọn nhiều đáp án
       const multiNotice = document.getElementById("multiNotice");
-      multiNotice.style.display = q.type === "multi" && !isFinished ? "flex" : "none";
+      if (isMulti) {
+        multiNotice.style.display = "flex";
+        if (isMultiDone && currentMode === "practice") {
+          const isCorrect = isAnswerCorrect(q, userAns);
+          multiNotice.className = `multi-hint ${isCorrect ? 'result-correct' : 'result-wrong'}`;
+          multiNotice.innerHTML = `
+            <span>${isCorrect ? '🎉 <b>Chính xác!</b> Bạn đã chọn đúng và đầy đủ tất cả các đáp án.' : '⚠️ <b>Chưa chính xác hoặc còn thiếu!</b> Xem lại các đáp án đúng màu xanh bên dưới.'}</span>
+            <button class="btn btn-outline" style="padding: 5px 12px; font-size: 12px; background: var(--card-bg);" onclick="resetMultiChoice()">🔄 Làm lại câu này</button>
+          `;
+        } else {
+          multiNotice.className = "multi-hint";
+          const count = Array.isArray(userAns) ? userAns.length : 0;
+          multiNotice.innerHTML = `
+            <span>📌 <b>Câu hỏi chọn nhiều đáp án:</b> Bạn có thể chọn nhiều phương án (đã chọn ${count}). Sau khi chọn xong bấm:</span>
+            <button class="btn btn-primary" style="padding: 6px 14px; font-size: 13px;" onclick="confirmMultiChoice()">✓ Kiểm tra đáp án</button>
+          `;
+        }
+      } else {
+        multiNotice.style.display = "none";
+      }
 
-      // Options
+      // Render danh sách lựa chọn
       const container = document.getElementById("optionsContainer");
       container.innerHTML = "";
 
@@ -893,27 +949,40 @@
         item.className = "option-item";
         if (isFinished) item.classList.add("disabled");
 
-        const userAns = userAnswers[currentIndex];
-
-        if (q.type === "multi") {
+        if (isMulti) {
           const isSelected = Array.isArray(userAns) && userAns.includes(optIdx);
           const isTarget = Array.isArray(q.answer) && q.answer.includes(optIdx);
 
           if (isSelected) item.classList.add("selected");
 
-          if (userAns !== undefined && (currentMode === "practice" || isFinished)) {
-            if (isTarget) {
+          // Chỉ khi người dùng ĐÃ BẤM KIỂM TRA hoặc ĐÃ NỘP BÀI thì mới hiện màu Đúng / Sai
+          if (isMultiDone && (currentMode === "practice" || isFinished)) {
+            if (isTarget && isSelected) {
               item.classList.add("correct");
-            } else if (isSelected) {
+            } else if (isTarget && !isSelected) {
+              item.classList.add("missed"); // Đáp án đúng mà người dùng bỏ sót
+            } else if (!isTarget && isSelected) {
               item.classList.add("wrong");
             }
           } else if (isSelected && currentMode === "exam") {
             item.classList.add("selected-exam");
           }
 
-          item.onclick = () => toggleMultiOption(optIdx);
+          // Nếu chưa kiểm tra thì được phép tick/bỏ tick
+          if (!isMultiDone) {
+            item.onclick = () => toggleMultiOption(optIdx);
+          }
+
+          const boxSymbol = isSelected ? "☑" : "☐";
+          const missedTag = (isMultiDone && isTarget && !isSelected && (currentMode === "practice" || isFinished)) 
+            ? ' <span style="font-size: 12px; font-weight: 700; color: #ca8a04;">(Đáp án đúng bị sót)</span>' : '';
+
+          item.innerHTML = `
+            <span class="opt-letter" style="font-size: 15px;">${boxSymbol}</span>
+            <span class="opt-text"><b>${letters[optIdx]}.</b> ${optText}${missedTag}</span>
+          `;
         } else {
-          // Single / True-False
+          // Câu hỏi 1 đáp án hoặc Đúng/Sai
           const isSelected = userAns === optIdx;
           const isTarget = optIdx === q.answer;
 
@@ -930,14 +999,14 @@
           }
 
           item.onclick = () => selectSingleOption(optIdx);
+
+          const badgeText = q.type === "tf" ? (optIdx === 0 ? "✓" : "✗") : (letters[optIdx] || optIdx + 1);
+
+          item.innerHTML = `
+            <span class="opt-letter">${badgeText}</span>
+            <span class="opt-text">${optText}</span>
+          `;
         }
-
-        const badgeText = q.type === "tf" ? (optIdx === 0 ? "✓" : "✗") : (letters[optIdx] || optIdx + 1);
-
-        item.innerHTML = `
-          <span class="opt-letter">${badgeText}</span>
-          <span class="opt-text">${optText}</span>
-        `;
 
         container.appendChild(item);
       });
@@ -955,7 +1024,7 @@
     }
 
     function toggleMultiOption(optIdx) {
-      if (isFinished) return;
+      if (isFinished || multiConfirmed[currentIndex]) return;
       let current = userAnswers[currentIndex];
       if (!Array.isArray(current)) current = [];
       
@@ -973,10 +1042,19 @@
     function confirmMultiChoice() {
       const current = userAnswers[currentIndex];
       if (!current || current.length === 0) {
-        alert("Vui lòng chọn ít nhất một đáp án trước khi xác nhận!");
+        alert("Vui lòng chọn ít nhất một đáp án trước khi bấm Kiểm tra!");
         return;
       }
+      multiConfirmed[currentIndex] = true;
       render();
+      updatePalette();
+    }
+
+    function resetMultiChoice() {
+      multiConfirmed[currentIndex] = false;
+      userAnswers[currentIndex] = [];
+      render();
+      updatePalette();
     }
 
     function move(step) {
@@ -1038,6 +1116,7 @@
 
     function restartQuiz() {
       userAnswers = {};
+      multiConfirmed = {};
       isFinished = false;
       currentIndex = 0;
       document.getElementById("resultCard").classList.remove("active");
